@@ -29,8 +29,8 @@ class FaceCropResponse(BaseModel):
     cropped_faces: list
 
 def match_faces(face_encoding1, face_encoding2):
-    matches = face_recognition.compare_faces(face_encoding1, face_encoding2,tolerance=0.8)
-    score = face_recognition.face_distance(face_encoding1, face_encoding2)[0]
+    matches = face_recognition.compare_faces([face_encoding1], face_encoding2,tolerance=0.4)
+    score = face_recognition.face_distance([face_encoding1], face_encoding2)[0]
     return matches[0], 1-score
 
 def crop_faces(image_array):
