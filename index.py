@@ -2,36 +2,56 @@ from flask import Flask, jsonify
 import json
 import face_recognition
 from flask_openapi3 import Info, Tag, OpenAPI
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 import base64
 import io
 import numpy as np
 from PIL import Image
+import logging
+import graypy
+from deepface import DeepFace
 
 info = Info(title="FaceMatch", version="0.0.1")
 app = OpenAPI(__name__, info=info)
-
+logger = logging.getLogger('test_logger')
+logger.setLevel(logging.DEBUG)
+# handler = graypy.GELFUDPHandler('localhost', 12201)
+# logger.addHandler(handler)
 
 class FacesMatchInput(BaseModel):
-  b64image1: str = Field('base64',description="image1")
-  b64image2: str = Field('base64',description="image2")
+    b64image1: str = Field('base64', description="image1")
+    b64image2: str = Field('base64', description="image2")
+
+
 match_tag = Tag(name="FaceMatch", description="FaceMatch")
+
 
 class FaceMatchResponse(BaseModel):
     match: bool
     score: float
 
+
 class FaceCropInput(BaseModel):
-  b64image: str = Field('base64',description="image")
+    b64image: str = Field('base64', description="image")
+
+
 crop_tag = Tag(name="FaceCrop", description="FaceMatch")
+
 
 class FaceCropResponse(BaseModel):
     cropped_faces: list
 
+
 def match_faces(face_encoding1, face_encoding2):
-    matches = face_recognition.compare_faces([face_encoding1], face_encoding2,tolerance=0.4)
+    matches = face_recognition.compare_faces(
+        [face_encoding1], face_encoding2, tolerance=0.4)
     score = face_recognition.face_distance([face_encoding1], face_encoding2)[0]
     return matches[0], 1-score
+
+def match_deepfaces(face_encoding1, face_encoding2):
+    result = DeepFace.verify(img1_path = face_encoding1, img2_path = face_encoding2)
+    return result
+
 
 def crop_faces(image_array):
     # Find faces in the image
@@ -47,34 +67,71 @@ def crop_faces(image_array):
 
     return cropped_faces
 
+
 @app.post("/api/facematch", tags=[match_tag], responses={"200": FaceMatchResponse})
 def FaceMatch(body: FacesMatchInput):
-    # Load base64-encoded images
-    image_bytes1 = base64.b64decode(body.b64image1)
-    image_bytes2 = base64.b64decode(body.b64image2)
-
-    # Convert bytes to an image file-like object
-    image1 = Image.open(io.BytesIO(image_bytes1)).convert('RGB')
-
-    image2 = Image.open(io.BytesIO(image_bytes2)).convert('RGB')
-
-
-    face1 = np.array(image1)
-    face2 = np.array(image2)
-
-    face_encoding1 = face_recognition.face_encodings(face1)[0]
-    face_encoding2 = face_recognition.face_encodings(face2)[0]
-
-    match, score = match_faces(face_encoding1, face_encoding2)
-
-    # Do something with the text
     try:
-        response_model = FaceMatchResponse(match=match, score=score)
-        return jsonify(response_model.dict())
+        logger.debug('[facematch]|[BEGIN]|/api/facematch')
+        # Load base64-encoded images
+        image_bytes1 = base64.b64decode(body.b64image1)
+        image_bytes2 = base64.b64decode(body.b64image2)
+        logger.debug('[facematch]|[OPERATE]|image_bytes1|image_bytes2')
+        # Convert bytes to an image file-like object
+        image1 = Image.open(io.BytesIO(image_bytes1)).convert('RGB')
+        image2 = Image.open(io.BytesIO(image_bytes2)).convert('RGB')
+
+        face1 = np.array(image1)
+        face2 = np.array(image2)
+
+        face_encoding1 = face_recognition.face_encodings(face1)[0]
+        face_encoding2 = face_recognition.face_encodings(face2)[0]
+        logger.debug('[facematch]|[OPERATE]|face_encoding1|face_encoding2')
+        match, score = match_faces(face_encoding1, face_encoding2)
+        logger.debug('[facematch]|[OPERATE]|match|score')
+        # Do something with the text
+        try:
+            response_model = FaceMatchResponse(match=match, score=score)
+            logger.debug('[facematch]|[OPERATE]|response_model')
+            return jsonify(response_model.dict())
+        except Exception as e:
+            logger.error(f'[facematch]|[error]|{str(e)}')
+            return jsonify({"error": str(e)})
     except Exception as e:
+        logger.error(f'[facematch]|[error]|{str(e)}')
         return jsonify({"error": str(e)})
 
-@app.post("/api/facecrop", tags=[crop_tag],responses={"200": FaceCropResponse})
+@app.post("/api/facedeepmatch", tags=[match_tag], responses={"200": FaceMatchResponse})
+def DeepFaceMatch(body: FacesMatchInput):
+    try:
+        logger.debug('[facematch]|[BEGIN]|/api/facematch')
+        # Load base64-encoded images
+        image_bytes1 = base64.b64decode(body.b64image1)
+        image_bytes2 = base64.b64decode(body.b64image2)
+        logger.debug('[facematch]|[OPERATE]|image_bytes1|image_bytes2')
+        # Convert bytes to an image file-like object
+        image1 = Image.open(io.BytesIO(image_bytes1)).convert('RGB')
+        image2 = Image.open(io.BytesIO(image_bytes2)).convert('RGB')
+
+        face1 = np.array(image1)
+        face2 = np.array(image2)
+
+        logger.debug('[facematch]|[OPERATE]|face_encoding1|face_encoding2')
+        result = match_deepfaces(face1, face2)
+        print(result)
+        logger.debug('[facematch]|[OPERATE]|match|score')
+        # Do something with the text
+        try:
+            response_model = FaceMatchResponse(match=result['verified'], score=1-result['distance'])
+            logger.debug('[facematch]|[OPERATE]|response_model')
+            return jsonify(response_model.dict())
+        except Exception as e:
+            logger.error(f'[facematch]|[error]|{str(e)}')
+            return jsonify({"error": str(e)})
+    except Exception as e:
+        logger.error(f'[facematch]|[error]|{str(e)}')
+        return jsonify({"error": str(e)})
+
+@app.post("/api/facecrop", tags=[crop_tag], responses={"200": FaceCropResponse})
 def FaceCrop(body: FaceCropInput):
     try:
         # Load base64-encoded image
@@ -118,6 +175,7 @@ def FaceCrop(body: FaceCropInput):
 
     except Exception as e:
         return jsonify({"error": str(e)})
+
 
 if __name__ == "__main__":
     app.run()
